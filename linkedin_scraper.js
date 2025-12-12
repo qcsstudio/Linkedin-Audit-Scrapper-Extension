@@ -6,7 +6,7 @@
     const q = (s) => document.querySelector(s);
     const qAll = (s) => Array.from(document.querySelectorAll(s));
 
-    // WAIT UNTIL ELEMENT LOADS
+    // WAIT FOR ELEMENTS
     const waitFor = async (selector, timeout = 8000) => {
       return new Promise((resolve) => {
         let waited = 0;
@@ -24,7 +24,7 @@
       });
     };
 
-    // FORCE FULL SCROLL (LinkedIn lazy loads everything)
+    // AUTO SCROLL (LinkedIn lazy loads)
     const autoScroll = async () => {
       return new Promise(async (resolve) => {
         let total = 0;
@@ -45,18 +45,55 @@
     console.log("⏳ Scrolling page for lazy-loaded data…");
     await autoScroll();
 
-    // Give LinkedIn time to load content
     await new Promise((res) => setTimeout(res, 2500));
 
-    // ==== WAIT FOR MAIN SECTIONS ====
     await waitFor("section[aria-label='About']");
     await waitFor("section[aria-label='Experience']");
     await waitFor("section[aria-label='Education']");
 
     console.log("📌 Starting FINAL scraping…");
 
+    // ===== ABOUT SECTION FIX (GUARANTEED) =====
+   const getAbout = () => {
+  let about = "";
+
+  // **1. first try visually-hidden (full text)**
+  const hidden = q("div.inline-show-more-text--is-collapsed span.visually-hidden");
+  if (hidden?.innerText.trim().length > 10) {
+    about = hidden.innerText.trim();
+  }
+
+  // **2. try aria-hidden**
+  if (!about) {
+    const ariaHidden = q("div.inline-show-more-text--is-collapsed span[aria-hidden='true']");
+    if (ariaHidden) about = ariaHidden.innerText.trim();
+  }
+
+  // **3. direct container fallback**
+  if (!about) {
+    const container = q("div.inline-show-more-text--is-collapsed");
+    if (container) about = container.innerText.replace("…see more", "").trim();
+  }
+
+  // **4. Last fallback: all spans inside the block**
+  if (!about) {
+    const spans = qAll("div.inline-show-more-text--is-collapsed span")
+      .map(s => s.innerText.trim())
+      .filter(t => t.length > 2);
+    if (spans.length > 0) about = spans.join(" ");
+  }
+
+  return about;
+};
+
+    // ===== MAIN SCRAPED DATA =====
     const data = {
       username: (location.pathname || "").split("/").filter(Boolean).pop() || "",
+
+      name:
+        text(q("h1.text-heading-xlarge")) ||
+        text(q(".pv-text-details__left-panel h1")) ||
+        "",
 
       profile_picture:
         src(q("img.pv-top-card-profile-picture__image")) ||
@@ -70,27 +107,24 @@
         text(q("div.text-body-large")) ||
         "",
 
-      about:
-        text(q("section[aria-label='About'] p")) ||
-        text(q("section[aria-label='About'] .display-flex")) ||
-        "",
+      about: getAbout(),
 
       location:
         text(q("span.text-body-small.inline.t-black--light")) ||
         text(q("div.pv-text-details__left-panel span")) ||
         "",
 
-      connections:
-        (() => {
-          const el = qAll("span").find((s) =>
-            /connections|followers/i.test(text(s))
-          );
-          return text(el);
-        })(),
+      connections: (() => {
+        const el = qAll("span").find((s) =>
+          /connections|followers/i.test(text(s))
+        );
+        return text(el);
+      })(),
 
-      // EXPERIENCE
       experience: qAll("section[aria-label='Experience'] li").map((li) => ({
-        title: text(li.querySelector("span.mr1")) || text(li.querySelector("h3")),
+        title:
+          text(li.querySelector("span.mr1")) ||
+          text(li.querySelector("h3")),
         company: text(li.querySelector("span.t-normal")) || "",
         duration: text(li.querySelector(".t-black--light")) || "",
         location: text(li.querySelector("span.t-14.t-black--light")) || "",
@@ -100,20 +134,21 @@
           "",
       })),
 
-      // EDUCATION
       education: qAll("section[aria-label='Education'] li").map((li) => ({
-        school: text(li.querySelector("span.mr1.t-bold")) || text(li.querySelector("h3")),
-        degree: text(li.querySelector(".t-normal")) || text(li.querySelector("h4")),
+        school:
+          text(li.querySelector("span.mr1.t-bold")) ||
+          text(li.querySelector("h3")),
+        degree:
+          text(li.querySelector(".t-normal")) ||
+          text(li.querySelector("h4")),
         duration: text(li.querySelector(".t-black--light")) || "",
       })),
 
-      // SKILLS
       skills: qAll("span.display-flex.t-normal")
         .map((el) => text(el))
         .filter((x) => x.length > 1)
         .slice(0, 50),
 
-      // POSTS (ACTIVITY)
       activity: qAll("div.update-components-text")
         .slice(0, 5)
         .map((post) => ({
@@ -122,7 +157,6 @@
           timestamp: post.querySelector("time")?.getAttribute("datetime") || "",
         })),
 
-      // CONTACT
       contact:
         text(q("a[href^='mailto:']")) ||
         text(q("section[aria-label='Contact info'] a")) ||

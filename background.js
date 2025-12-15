@@ -1,98 +1,124 @@
 // background.js
 
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg && msg.type === "START_SCRAPE") {
-    const { url, role } = msg;
+const DETAILS_PAGES = ["experience", "education", "skills"];
 
-    (async () => {
-      try {
-        // create a new tab (inactive)
-        const tab = await chrome.tabs.create({ url, active: false });
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  if (!msg || msg.type !== "START_SCRAPE") return;
 
-        // wait for tab to finish loading
-        await new Promise((res) => {
-          const onUpdated = (tabId, changeInfo) => {
-            if (tabId === tab.id && changeInfo.status === "complete") {
-              chrome.tabs.onUpdated.removeListener(onUpdated);
-              res();
-            }
-          };
-          chrome.tabs.onUpdated.addListener(onUpdated);
-        });
+  const { url, role } = msg;
 
-        // inject scraper
-        const results = await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          files: ["linkedin_scraper.js"]
-        });
+  (async () => {
+    let profileTab;
+    try {
+      // 1️⃣ OPEN BASE PROFILE
+      profileTab = await chrome.tabs.create({ url, active: false });
+      await waitForTab(profileTab.id);
 
-        const scraped =
-          results && results[0] && results[0].result
-            ? results[0].result
-            : { error: "no-data" };
+      // 2️⃣ SCRAPE BASE PROFILE
+      const baseResult = await runScraper(profileTab.id);
+      const finalData = { ...baseResult };
 
-        // 🔥 SEND SCRAPER DATA TO FRONTEND BEFORE BACKEND
-        try {
-          chrome.tabs.sendMessage(sender.tab.id, {
-            from: "LINKEDIN_AUDIT_EXT",
-            type: "DEBUG_DATA",
-            payload: { ...scraped, role }
-          });
-        } catch (err) {
-          console.warn("DEBUG_DATA send failed", err);
-        }
+      // 3️⃣ SCRAPE DETAILS PAGES
+      for (const page of DETAILS_PAGES) {
+        const detailsUrl = `${url.replace(/\/$/, "")}/details/${page}/`;
+        const tab = await chrome.tabs.create({ url: detailsUrl, active: false });
+        await waitForTab(tab.id);
 
-        // =======================
-        // BACKEND CALL
-        // =======================
-        const backendUrl =
-          "http://ec2-13-127-109-214.ap-south-1.compute.amazonaws.com:5000/api/analyze/url";
+        const detailResult = await runScraper(tab.id);
 
-        let scoreResponse = {
-          score: 0,
-          summary: "No backend configured",
-          data: scraped
-        };
+        if (page === "experience") finalData.experience = detailResult.experience || [];
+        if (page === "education") finalData.education = detailResult.education || [];
+        if (page === "skills") finalData.skills = detailResult.skills || [];
 
-        try {
-          const resp = await fetch(backendUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...scraped, role })
-          });
-          scoreResponse = await resp.json();
-        } catch (err) {
-          scoreResponse = {
-            score: 0,
-            summary: "Backend error: " + err.message,
-            data: scraped
-          };
-        }
-
-        // =======================
-        // SEND RESULT TO FRONTEND
-        // =======================
-        try {
-          const allTabs = await chrome.tabs.query({});
-          for (const t of allTabs) {
-            try {
-              await chrome.tabs.sendMessage(t.id, {
-                type: "SCRAPE_RESULT",
-                payload: scoreResponse
-              });
-            } catch (e) {}
-          }
-        } catch (e) {
-          console.error("sendMessage error", e);
-        }
-
-        // close the opened tab
-        try {
-          await chrome.tabs.remove(tab.id);
-        } catch (e) {}
-      } catch (err) {
-        console.error("background error", err);
+        await chrome.tabs.remove(tab.id);
       }
-    })();
-  }
+
+      // ==========================
+// SCRAPE CONTACT INFO (OVERLAY) 👈 YAHAN
+// ==========================
+const contactUrl = `${url.replace(/\/$/, "")}/overlay/contact-info/`;
+const contactTab = await chrome.tabs.create({
+  url: contactUrl,
+  active: false
 });
+await waitForTab(contactTab.id);
+
+const contactResult = await runScraper(contactTab.id);
+finalData.contact = contactResult.contact || {};
+
+await chrome.tabs.remove(contactTab.id);
+
+// ==========================
+// SCRAPE ACTIVITY
+// ==========================
+const activityUrl = `${url.replace(/\/$/, "")}/recent-activity/all/`;
+const activityTab = await chrome.tabs.create({
+  url: activityUrl,
+  active: false
+});
+await waitForTab(activityTab.id);
+
+const activityResult = await runScraper(activityTab.id);
+finalData.activity = activityResult.activity || {};
+
+await chrome.tabs.remove(activityTab.id);
+
+
+      // 4️⃣ DEBUG DATA
+      chrome.tabs.sendMessage(sender.tab.id, {
+        type: "DEBUG_DATA",
+        payload: { ...finalData, role }
+      });
+
+      // 5️⃣ BACKEND CALL
+      const backendUrl =
+        "http://ec2-13-127-109-214.ap-south-1.compute.amazonaws.com:5000/api/analyze/url";
+
+      const resp = await fetch(backendUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...finalData, role })
+      });
+
+      const response = await resp.json();
+
+      // 6️⃣ SEND RESULT
+      const tabs = await chrome.tabs.query({});
+      tabs.forEach((t) => {
+        try {
+          chrome.tabs.sendMessage(t.id, {
+            type: "SCRAPE_RESULT",
+            payload: response
+          });
+        } catch {}
+      });
+
+    } catch (err) {
+      console.error("BACKGROUND ERROR:", err);
+    } finally {
+      if (profileTab?.id) {
+        try { await chrome.tabs.remove(profileTab.id); } catch {}
+      }
+    }
+  })();
+});
+
+function waitForTab(tabId) {
+  return new Promise((resolve) => {
+    const listener = (id, info) => {
+      if (id === tabId && info.status === "complete") {
+        chrome.tabs.onUpdated.removeListener(listener);
+        setTimeout(resolve, 1500);
+      }
+    };
+    chrome.tabs.onUpdated.addListener(listener);
+  });
+}
+
+async function runScraper(tabId) {
+  const res = await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["linkedin_scraper.js"]
+  });
+  return res?.[0]?.result || {};
+}

@@ -1,60 +1,38 @@
 (async function () {
   try {
-    // Helper functions
     const text = (el) => el?.innerText?.trim() || "";
-    const src = (el) => el?.src || "";
     const q = (s) => document.querySelector(s);
-    const qAll = (s) => Array.from(document.querySelectorAll(s));
+     const src = (el) => el?.src || "";
 
-    // WAIT FOR ELEMENTS
-    const waitFor = async (selector, timeout = 8000) => {
-      return new Promise((resolve) => {
-        let waited = 0;
-        const interval = setInterval(() => {
-          if (document.querySelector(selector)) {
-            clearInterval(interval);
-            resolve(true);
-          }
-          waited += 200;
-          if (waited >= timeout) {
-            clearInterval(interval);
-            resolve(false);
-          }
-        }, 200);
-      });
-    };
+    // ==========================
+    // HELPERS
+    // ==========================
+    const sleep = (ms) => new Promise(res => setTimeout(res, ms));
 
-    // AUTO SCROLL (LinkedIn lazy loads)
-    const autoScroll = async () => {
-      return new Promise(async (resolve) => {
-        let total = 0;
-        const distance = 400;
+    async function waitFor(selector, timeout = 10000) {
+      const start = Date.now();
+      while (Date.now() - start < timeout) {
+        if (document.querySelector(selector)) return true;
+        await sleep(300);
+      }
+      return false;
+    }
 
-        const timer = setInterval(() => {
-          window.scrollBy(0, distance);
-          total += distance;
+    async function autoScroll() {
+      let total = 0;
+      const step = 500;
+      while (total < document.body.scrollHeight) {
+        window.scrollBy(0, step);
+        total += step;
+        await sleep(300);
+      }
+    }
 
-          if (total >= document.body.scrollHeight - 2000) {
-            clearInterval(timer);
-            resolve();
-          }
-        }, 200);
-      });
-    };
+    // ==========================
+    // about SCRAPER
+    // ==========================
 
-    console.log("⏳ Scrolling page for lazy-loaded data…");
-    await autoScroll();
-
-    await new Promise((res) => setTimeout(res, 2500));
-
-    await waitFor("section[aria-label='About']");
-    await waitFor("section[aria-label='Experience']");
-    await waitFor("section[aria-label='Education']");
-
-    console.log("📌 Starting FINAL scraping…");
-
-    // ===== ABOUT SECTION FIX (GUARANTEED) =====
-   const getAbout = () => {
+ const getAbout = () => {
   let about = "";
 
   // **1. first try visually-hidden (full text)**
@@ -86,87 +64,343 @@
   return about;
 };
 
-    // ===== MAIN SCRAPED DATA =====
-    const data = {
-      username: (location.pathname || "").split("/").filter(Boolean).pop() || "",
 
-      name:
-        text(q("h1.text-heading-xlarge")) ||
-        text(q(".pv-text-details__left-panel h1")) ||
-        "",
 
-      profile_picture:
-        src(q("img.pv-top-card-profile-picture__image")) ||
-        src(q("img.profile-photo-edit__preview")) ||
-        src(q("img.update-components-actor__avatar-image")) ||
-        "",
+    // ==========================
+    // EXPERIENCE SCRAPER
+    // ==========================
+    async function scrapeExperienceDetails() {
+      await waitFor("h1");
+      await autoScroll();
+      await sleep(1200);
 
-      headline:
-        text(q("div.text-body-medium.break-words")) ||
-        text(q("h2.text-heading-medium")) ||
-        text(q("div.text-body-large")) ||
-        "",
+      const experiences = [];
+      const items = document.querySelectorAll("li.pvs-list__paged-list-item");
 
-      about: getAbout(),
+      items.forEach(item => {
+        if (item.querySelector("ul.pvs-list")) return;
 
-      location:
-        text(q("span.text-body-small.inline.t-black--light")) ||
-        text(q("div.pv-text-details__left-panel span")) ||
-        "",
+        const getText = sel =>
+          item.querySelector(sel)?.innerText?.trim() || "";
 
-      connections: (() => {
-        const el = qAll("span").find((s) =>
-          /connections|followers/i.test(text(s))
+        const title = getText(
+          "div.hoverable-link-text span[aria-hidden='true']"
         );
-        return text(el);
-      })(),
 
-      experience: qAll("section[aria-label='Experience'] li").map((li) => ({
-        title:
-          text(li.querySelector("span.mr1")) ||
-          text(li.querySelector("h3")),
-        company: text(li.querySelector("span.t-normal")) || "",
-        duration: text(li.querySelector(".t-black--light")) || "",
-        location: text(li.querySelector("span.t-14.t-black--light")) || "",
-        description:
-          text(li.querySelector(".pv-shared-text")) ||
-          text(li.querySelector(".inline-show-more-text")) ||
-          "",
-      })),
+        const companyLine = getText(
+          "span.t-14.t-normal span[aria-hidden='true']"
+        );
 
-      education: qAll("section[aria-label='Education'] li").map((li) => ({
-        school:
-          text(li.querySelector("span.mr1.t-bold")) ||
-          text(li.querySelector("h3")),
-        degree:
-          text(li.querySelector(".t-normal")) ||
-          text(li.querySelector("h4")),
-        duration: text(li.querySelector(".t-black--light")) || "",
-      })),
+        let company = "";
+        let employmentType = "";
 
-      skills: qAll("span.display-flex.t-normal")
-        .map((el) => text(el))
-        .filter((x) => x.length > 1)
-        .slice(0, 50),
+        if (companyLine.includes("·")) {
+          const parts = companyLine.split("·").map(s => s.trim());
+          company = parts[0];
+          employmentType = parts[1] || "";
+        } else {
+          company = companyLine;
+        }
 
-      activity: qAll("div.update-components-text")
-        .slice(0, 5)
-        .map((post) => ({
-          type: "post",
-          text: text(post.querySelector("span.break-words")),
-          timestamp: post.querySelector("time")?.getAttribute("datetime") || "",
-        })),
+        const metaLines = Array.from(
+          item.querySelectorAll(
+            "span.t-14.t-normal.t-black--light span[aria-hidden='true']"
+          )
+        ).map(el => el.innerText.trim());
 
-      contact:
-        text(q("a[href^='mailto:']")) ||
-        text(q("section[aria-label='Contact info'] a")) ||
-        "",
+        let duration = "";
+        let location = "";
+
+        metaLines.forEach(line => {
+          if (/present|yr|mos/i.test(line)) duration = line;
+          else if (/india|remote|on-site|hybrid/i.test(line)) location = line;
+        });
+
+        let skills = [];
+        const skillBlock = item.querySelector("strong");
+        if (skillBlock?.innerText.includes("Skills")) {
+          skills = skillBlock.parentElement.innerText
+            .replace("Skills:", "")
+            .split("·")
+            .map(s => s.trim())
+            .filter(Boolean);
+        }
+
+        if (title && company) {
+          experiences.push({
+            company: title,           // title → company
+            employmentType: company,  // company → employmentType
+            duration,
+            location,
+            skills
+          });
+        }
+      });
+
+      return experiences;
+    }
+
+    // ==========================
+    // EDUCATION SCRAPER
+    // ==========================
+    async function scrapeEducationDetails() {
+      await waitFor("section");
+      await autoScroll();
+      await sleep(1000);
+
+      const education = [];
+
+      const items = document.querySelectorAll(
+        "li.pvs-list__paged-list-item"
+      );
+
+      items.forEach(item => {
+        const institute =
+          item.querySelector(
+            "div.hoverable-link-text span[aria-hidden='true']"
+          )?.innerText?.trim() || "";
+
+        const degree =
+          item.querySelector(
+            "span.t-14.t-normal span[aria-hidden='true']"
+          )?.innerText?.trim() || "";
+
+        const duration =
+          item.querySelector(
+            "span.pvs-entity__caption-wrapper[aria-hidden='true']"
+          )?.innerText?.trim() || "";
+
+        const description =
+          item.querySelector(
+            "div.t-14.t-normal.t-black span[aria-hidden='true']"
+          )?.innerText?.trim() || "";
+
+        const logo =
+          item.querySelector("img.ivm-view-attr__img")?.src || "";
+
+        if (institute) {
+          education.push({
+            institute,
+            degree,
+            duration,
+            description,
+            logo
+          });
+        }
+      });
+
+      return education;
+    }
+
+
+    // skills
+// ==========================
+// SKILLS SCRAPER
+// ==========================
+async function scrapeSkillsDetails() {
+  await waitFor("section");
+  await autoScroll();
+  await sleep(1000);
+
+  const skills = [];
+
+  const items = document.querySelectorAll(
+    "li.pvs-list__paged-list-item"
+  );
+
+  items.forEach(item => {
+    const skill = item.querySelector(
+      "div.hoverable-link-text span[aria-hidden='true']"
+    )?.innerText?.trim();
+
+    if (skill) skills.push(skill);
+  });
+
+  return skills;
+}
+
+// ==========================
+// CONTACT INFO SCRAPER
+// ==========================
+function scrapeContactInfo() {
+  const contact = {};
+
+  const sections = document.querySelectorAll(
+    "section.pv-contact-info__contact-type"
+  );
+
+  sections.forEach(section => {
+    const header =
+      section.querySelector("h3")?.innerText?.trim().toLowerCase() || "";
+
+    // PROFILE
+    // if (header.includes("profile")) {
+    //   contact.profile =
+    //     section.querySelector("a")?.href || "";
+    // }
+
+    // PHONE
+    if (header.includes("phone")) {
+      contact.phone =
+        section.querySelector("span.t-black")?.innerText?.trim() || "";
+    }
+
+    // ADDRESS
+    if (header.includes("address")) {
+      contact.address =
+        section.querySelector("a")?.innerText?.trim() || "";
+    }
+
+    // EMAIL
+    if (header.includes("email")) {
+      contact.email =
+        section.querySelector("a")?.innerText?.trim() || "";
+    }
+
+    // BIRTHDAY
+    if (header.includes("birthday")) {
+      contact.birthday =
+        section.querySelector("span.t-black")?.innerText?.trim() || "";
+    }
+
+    // WEBSITE
+    if (header.includes("website")) {
+      contact.website =
+        section.querySelector("a")?.href || "";
+    }
+  });
+
+  return contact;
+}
+
+// ==========================
+// ACTIVITY SCRAPER
+// ==========================
+async function scrapeActivity() {
+  await waitFor("section");
+  await autoScroll();
+  await sleep(1200);
+
+  const activity = {
+    type: "posts",
+    items: []
+  };
+
+  // Empty state check
+  const emptyText = document.querySelector(
+    ".artdeco-empty-state__headline"
+  )?.innerText;
+
+  if (emptyText && /nothing to see/i.test(emptyText)) {
+    return activity; // no activity
+  }
+
+  const posts = document.querySelectorAll(
+    "div.feed-shared-update-v2, div.feed-shared-post"
+  );
+
+  posts.forEach(post => {
+    const content =
+      post.querySelector("span.break-words, div.feed-shared-text")
+        ?.innerText?.trim() || "";
+
+    const time =
+      post.querySelector("span.feed-shared-actor__sub-description")
+        ?.innerText?.trim() || "";
+
+    const reactions =
+      post.querySelector("span.social-details-social-counts__reactions-count")
+        ?.innerText?.trim() || "0";
+
+    const comments =
+      post.querySelector("span.social-details-social-counts__comments")
+        ?.innerText?.trim() || "0";
+
+    if (content) {
+      activity.items.push({
+        content,
+        time,
+        reactions,
+        comments
+      });
+    }
+  });
+
+  return activity;
+}
+// ==========================
+//Location Scraper
+// ==========================
+function scrapeLocation() {
+  // primary selector (top card location)
+  const location =
+  document.querySelector(
+    "section.artdeco-card span.text-body-small.inline.t-black--light.break-words"
+  )?.innerText?.trim();
+  
+  return location || "";
+}
+
+// ==========================
+//profileImage Scraper
+// ==========================
+function scrapeProfileImage() {
+  // Primary selector (most reliable)
+  const img =
+    document.querySelector(
+      "img.profile-photo-edit__preview"
+    ) ||
+    document.querySelector(
+      "img.pv-top-card-profile-picture__image"
+    ) ||
+    document.querySelector(
+      "img[alt][src*='profile-displayphoto']"
+    );
+
+  return img?.src || "";
+}
+
+
+    // ==========================
+    // ROUTE DETECTOR
+    // ==========================
+    if (location.pathname.includes("/details/experience")) {
+      return { experience: await scrapeExperienceDetails() };
+    }
+
+    if (location.pathname.includes("/details/education")) {
+      return { education: await scrapeEducationDetails() };
+    }
+
+    if (location.pathname.includes("/details/skills")) {
+  return { skills: await scrapeSkillsDetails() };
+}
+
+if (location.pathname.includes("overlay/contact-info")) {
+  return { contact: scrapeContactInfo() };
+}
+
+if (location.pathname.includes("recent-activity")) {
+  return { activity: await scrapeActivity() };
+}
+
+    // ==========================
+    // BASE PROFILE
+    // ==========================
+    return {
+      username: location.pathname.split("/").filter(Boolean).pop() || "",
+      name: q("h1")?.innerText || "",
+      headline: q("div.text-body-medium")?.innerText || "",
+      location: scrapeLocation(),
+      about: getAbout(),
+      connections:
+        Array.from(document.querySelectorAll("span"))
+          .find(s => /connections/i.test(s.innerText))?.innerText || "",
+      profile_picture:scrapeProfileImage(),
     };
 
-    console.log("🔥 FINAL SCRAPED DATA:", data);
-    return data;
-
   } catch (err) {
+    console.error("SCRAPER ERROR:", err);
     return { error: err.message };
   }
 })();

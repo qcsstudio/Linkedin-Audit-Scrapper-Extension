@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "LinkedIn Audit Scraper",
+  "name": "ElevatrX LinkedIn Profile Scanner",
   "version": "1.0",
-  "description": "Scrapes public LinkedIn profiles and sends data to backend for scoring.",
+  "description": "Instantly analyze any LinkedIn profile and generate an AI-powered profile score and improvement checklist in your browser.",
   "permissions": ["scripting", "tabs", "storage"],
   "host_permissions": ["*://*.linkedin.com/*", "<all_urls>"],
   "background": {"service_worker": "background.js"},

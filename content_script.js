@@ -9,6 +9,7 @@ window.addEventListener("message", (event) => {
       type: "START_SCRAPE",
       url: event.data.url,
       role: event.data.role,
+      accepted: event.data.accepted,
       sourceTabId: null
     });
   }

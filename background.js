@@ -5,7 +5,7 @@ const DETAILS_PAGES = ["experience", "education", "skills"];
 chrome.runtime.onMessage.addListener((msg, sender) => {
   if (!msg || msg.type !== "START_SCRAPE") return;
 
-  const { url, role } = msg;
+  const { url, role ,accepted } = msg;
 
   (async () => {
     let profileTab;
@@ -67,7 +67,7 @@ await chrome.tabs.remove(activityTab.id);
       // 4️⃣ DEBUG DATA
       chrome.tabs.sendMessage(sender.tab.id, {
         type: "DEBUG_DATA",
-        payload: { ...finalData, role }
+        payload: { ...finalData, role , url,accepted}
       });
 
       // 5️⃣ BACKEND CALL
@@ -77,7 +77,7 @@ await chrome.tabs.remove(activityTab.id);
       const resp = await fetch(backendUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...finalData, role })
+        body: JSON.stringify({ ...finalData, role ,url,accepted})
       });
 
       const response = await resp.json();

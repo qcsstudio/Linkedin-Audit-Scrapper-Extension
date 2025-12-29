@@ -1,8 +1,8 @@
 (async function () {
   try {
-    const text = (el) => el?.innerText?.trim() || "";
     const q = (s) => document.querySelector(s);
-     const src = (el) => el?.src || "";
+    const qAll = (s) => document.querySelectorAll(s);
+  
 
     // ==========================
     // HELPERS
@@ -344,20 +344,16 @@ function scrapeLocation() {
 // ==========================
 //profileImage Scraper
 // ==========================
-function scrapeProfileImage() {
-  // Primary selector (most reliable)
-  const img =
-    document.querySelector(
-      "img.profile-photo-edit__preview"
-    ) ||
-    document.querySelector(
-      "img.pv-top-card-profile-picture__image"
-    ) ||
-    document.querySelector(
-      "img[alt][src*='profile-displayphoto']"
-    );
+function getProfileImageFromTopCard() {
+  const section = document.querySelector("section.artdeco-card");
+  if (!section) return "";
 
-  return img?.src || "";
+  return (
+    section.querySelector("img.profile-photo-edit__preview")?.src ||
+    section.querySelector("img[src*='profile-displayphoto']")?.src ||
+    section.querySelector("img.evi-image")?.src ||
+    ""
+  );
 }
 
 
@@ -396,7 +392,7 @@ if (location.pathname.includes("recent-activity")) {
       connections:
         Array.from(document.querySelectorAll("span"))
           .find(s => /connections/i.test(s.innerText))?.innerText || "",
-      profile_picture:scrapeProfileImage(),
+      profile_picture: getProfileImageFromTopCard(),
     };
 
   } catch (err) {

@@ -3,20 +3,29 @@
   "name": "ElevatrX LinkedIn Profile Scanner",
   "version": "1.0",
   "description": "Instantly analyze any LinkedIn profile and generate an AI-powered profile score and improvement checklist in your browser.",
-  "permissions": ["scripting", "tabs", "storage"],
-  "host_permissions": ["*://*.linkedin.com/*", "<all_urls>"],
-  "background": {"service_worker": "background.js"},
+  "permissions": [
+    "scripting"
+  ],
+  "host_permissions": [
+    "*://*.linkedin.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
-     "matches": [
+      "matches": [
         "https://www.linkedin.com/*",
-        "https://linkedin.com/*",
-        "http://localhost:3000/*",
-        "https://quantumcrafters-studio.vercel.app/*"
+        "http://localhost:3000/linkedIn-Profile-Makeover",
+        "https://www.qcsstudio.com/linkedIn-Profile-Makeover"
       ],
-      "js": ["content_script.js"],
+      "js": [
+        "content_script.js"
+      ],
       "run_at": "document_end"
     }
   ],
-  "action": { "default_title": "LinkedIn Audit" }
+  "action": {
+    "default_title": "LinkedIn Audit"
+  }
 }
